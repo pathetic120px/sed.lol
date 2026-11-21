@@ -1,0 +1,523 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local player = Players.LocalPlayer
+local playerESP = {}
+local connections = {}
+
+local oldFolder = player:FindFirstChild("ESPController")
+if oldFolder then oldFolder:Destroy() end
+Instance.new("Folder", player).Name = "ESPController"
+
+local healRemote
+do
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local healing = remotes and remotes:FindFirstChild("Healing")
+    healRemote = healing and healing:FindFirstChild("HealEvent")
+end
+
+local BODY_MOVERS = {
+    BodyVelocity = true,
+    BodyPosition = true,
+    BodyGyro = true,
+    BodyForce = true,
+}
+
+local COLORS = {
+    Killer = Color3.fromRGB(255, 0, 0),
+    KillerCovered = Color3.fromRGB(180, 90, 90),
+    PlayerNeon = Color3.fromRGB(0, 255, 0),
+    PlayerNeonCovered = Color3.fromRGB(120, 200, 120),
+    Generator = Color3.fromRGB(225, 225, 225),
+    Pallet = Color3.fromRGB(255, 220, 80),
+    PalletCovered = Color3.fromRGB(200, 185, 140),
+    Nearest = Color3.fromRGB(80, 255, 120),
+}
+
+local KILLER_NAMES = {
+    ["Stalker"] = "The Stalker",
+    ["Killer"] = "The Killer",
+    ["Hidden"] = "The Hidden",
+    ["Abysswalker"] = "The Abysswalker",
+    ["Veil"] = "The Veil",
+    ["Slasher"] = "The Slasher",
+    ["Masked"] = "The Masked",
+    ["Cure"] = "The Cure",
+    ["Butcher"] = "The Butcher",
+}
+
+Lighting.FogEnd = 1e6
+Lighting.FogStart = 1e6
+Lighting.FogColor = Color3.fromRGB(200, 200, 200)
+Lighting.GlobalShadows = false
+Lighting.Brightness = 2
+Lighting.OutdoorAmbient = Color3.fromRGB(180, 180, 180)
+
+for _, obj in ipairs(workspace:GetDescendants()) do
+    if obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+        obj.Enabled = false
+    end
+end
+workspace.DescendantAdded:Connect(function(obj)
+    if obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+        obj.Enabled = false
+    end
+end)
+
+for _, obj in ipairs(Lighting:GetChildren()) do
+    if obj:IsA("Atmosphere") then
+        obj.Density = 0; obj.Haze = 0; obj.Glare = 0
+    end
+end
+for _, obj in ipairs(Lighting:GetChildren()) do
+    if obj:IsA("BlurEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("DepthOfFieldEffect") or obj:IsA("SunRaysEffect") then
+        obj.Parent = nil
+    end
+end
+
+local function CreateESP(adornee, visibleColor, coveredColor, name, isPlayer)
+    local visible = Instance.new("Highlight")
+    visible.Name = name
+    visible.Adornee = adornee
+    visible.DepthMode = Enum.HighlightDepthMode.Occluded
+    visible.FillTransparency = 1
+    visible.OutlineTransparency = isPlayer and 0 or 0.3
+    visible.OutlineColor = visibleColor
+    visible.Parent = adornee
+
+    local hidden = Instance.new("Highlight")
+    hidden.Name = name
+    hidden.Adornee = adornee
+    hidden.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hidden.FillColor = coveredColor
+    hidden.FillTransparency = isPlayer and 0.45 or 0.92
+    hidden.OutlineTransparency = isPlayer and 0.35 or 0.6
+    hidden.OutlineColor = coveredColor
+    hidden.Parent = adornee
+
+    local esp = { Alive = true }
+
+    function esp:SetColor(c, cc)
+        visible.OutlineColor = c
+        if cc then
+            hidden.OutlineColor = cc
+            hidden.FillColor = cc
+        else
+            hidden.OutlineColor = c
+            hidden.FillColor = c
+        end
+    end
+
+    function esp:Destroy()
+        self.Alive = false
+        if visible then visible:Destroy() end
+        if hidden then hidden:Destroy() end
+    end
+
+    return esp
+end
+
+local function CleanupPlayer(targetPlayer)
+    local h = playerESP[targetPlayer]
+    if h then h:Destroy() end
+    playerESP[targetPlayer] = nil
+    local c = connections[targetPlayer]
+    if c then
+        for _, conn in ipairs(c) do
+            if conn.Connected then conn:Disconnect() end
+        end
+        connections[targetPlayer] = nil
+    end
+end
+
+local PlayerGui = player:WaitForChild("PlayerGui")
+
+local oldGui = PlayerGui:FindFirstChild("KillerTextOverlay")
+if oldGui then oldGui:Destroy() end
+
+local killUI = Instance.new("ScreenGui")
+killUI.Name = "KillerTextOverlay"
+killUI.ResetOnSpawn = false
+killUI.IgnoreGuiInset = true
+killUI.Parent = PlayerGui
+
+local killText = Instance.new("TextLabel")
+killText.Name = "KillerText"
+killText.Size = UDim2.new(0, 500, 0, 50)
+killText.Position = UDim2.new(1, -520, 0, 20)
+killText.BackgroundTransparency = 1
+killText.Text = "Next Killer: scanning..."
+killText.TextColor3 = Color3.fromRGB(255, 50, 50)
+killText.Font = Enum.Font.GothamBold
+killText.TextSize = 20
+killText.TextXAlignment = Enum.TextXAlignment.Right
+killText.TextYAlignment = Enum.TextYAlignment.Top
+killText.Parent = killUI
+
+local function getValue(obj, name)
+    if not obj then return nil end
+
+    local value = obj:GetAttribute(name)
+    if value ~= nil then return value end
+
+    local child = obj:FindFirstChild(name)
+    if child then
+        local ok, result = pcall(function()
+            return child.Value
+        end)
+        if ok then return result end
+    end
+
+    return nil
+end
+
+local function isKiller(p)
+    local teamName = p.Team and p.Team.Name:lower() or ""
+    return teamName:find("killer", 1, true) ~= nil
+        or teamName:find("murderer", 1, true) ~= nil
+end
+
+local function updateDisplay()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and isKiller(p) then
+            local character = p.Character
+            local killerType = character and character:GetAttribute("MorphedKiller")
+
+            if killerType then
+                local displayName = KILLER_NAMES[tostring(killerType)] or tostring(killerType)
+                local mask = character:GetAttribute("Mask")
+                local maskText = mask and (" (" .. tostring(mask) .. ")") or ""
+                killText.Text = "Killer: @" .. p.Name .. " — " .. displayName .. maskText
+                return
+            end
+
+            killText.Text = "Killer: @" .. p.Name
+            return
+        end
+    end
+
+    local candidates = Players:GetPlayers()
+    local candidate
+    local bestAllowed
+    local bestChance = -math.huge
+    local bestAllowedChance = -math.huge
+
+    for _, p in ipairs(candidates) do
+        local chance = tonumber(getValue(p, "KillerChance")) or 0
+        if getValue(p, "AllowKiller") == true then
+            if not bestAllowed or chance > bestAllowedChance then
+                bestAllowed = p
+                bestAllowedChance = chance
+            end
+        elseif not candidate or chance > bestChance then
+            candidate = p
+            bestChance = chance
+        end
+    end
+
+    candidate = bestAllowed or candidate
+    if not candidate then
+        killText.Text = "Next Killer: no players found"
+        return
+    end
+
+    local username = candidate == player and "YOU (@" .. player.Name .. ")" or "@" .. candidate.Name
+    local selected = getValue(candidate, "SelectedKiller")
+
+    if selected and tostring(selected) ~= "" then
+        local displayName = KILLER_NAMES[tostring(selected)] or tostring(selected)
+        killText.Text = "Next Killer: " .. username .. " — " .. displayName
+    else
+        killText.Text = "Next Killer: " .. username
+    end
+end
+
+task.spawn(function()
+    while killUI.Parent do
+        updateDisplay()
+        task.wait(1)
+    end
+end)
+
+local function AddPlayerESP(targetPlayer)
+    if targetPlayer == player then return end
+    CleanupPlayer(targetPlayer)
+    local conns = {}
+    connections[targetPlayer] = conns
+
+    local function getColors()
+        local killer = isKiller(targetPlayer)
+        if killer then
+            return COLORS.Killer, COLORS.KillerCovered
+        else
+            return COLORS.PlayerNeon, COLORS.PlayerNeonCovered
+        end
+    end
+
+    local function ApplyESP(character)
+        if not character or not character.Parent then return end
+        if playerESP[targetPlayer] then
+            playerESP[targetPlayer]:Destroy()
+            playerESP[targetPlayer] = nil
+        end
+        local vc, cc = getColors()
+        playerESP[targetPlayer] = CreateESP(character, vc, cc, "PlayerESP", true)
+    end
+
+    if targetPlayer.Character then ApplyESP(targetPlayer.Character) end
+    
+    table.insert(conns, targetPlayer.CharacterAdded:Connect(function(c)
+        task.wait(0.1)
+        ApplyESP(c)
+    end))
+    
+    table.insert(conns, targetPlayer:GetPropertyChangedSignal("Team"):Connect(function()
+        local h = playerESP[targetPlayer]
+        if h and h.Alive then
+            local vc, cc = getColors()
+            h:SetColor(vc, cc)
+        end
+    end))
+end
+
+for _, p in ipairs(Players:GetPlayers()) do AddPlayerESP(p) end
+Players.PlayerAdded:Connect(function(p)
+    AddPlayerESP(p)
+end)
+Players.PlayerRemoving:Connect(CleanupPlayer)
+
+-- ==========================================
+-- GENERATOR ESP (With Progress Percentage)
+-- ==========================================
+local generatorESP = {}
+
+local function CreateGeneratorESP(gen)
+    if generatorESP[gen] then return end
+    
+    local progress = gen:GetAttribute("RepairProgress") or 0
+    if progress >= 100 then return end
+
+    local visible = Instance.new("Highlight")
+    visible.Name = "GeneratorESP"
+    visible.Adornee = gen
+    visible.DepthMode = Enum.HighlightDepthMode.Occluded
+    visible.FillTransparency = 1
+    visible.OutlineTransparency = 0.3
+    visible.OutlineColor = COLORS.Generator
+    visible.Parent = gen
+
+    local hidden = Instance.new("Highlight")
+    hidden.Name = "GeneratorESP"
+    hidden.Adornee = gen
+    hidden.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hidden.FillColor = COLORS.Generator
+    hidden.FillTransparency = 0.92
+    hidden.OutlineTransparency = 0.6
+    hidden.OutlineColor = COLORS.Generator
+    hidden.Parent = gen
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "GenProgressLabel"
+    billboard.Adornee = gen
+    billboard.Size = UDim2.new(0, 60, 0, 24)
+    billboard.StudsOffset = Vector3.new(0, 2, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = gen
+
+    local text = Instance.new("TextLabel")
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.BackgroundTransparency = 1
+    text.Text = tostring(progress) .. "%"
+    text.TextColor3 = Color3.fromRGB(255, 255, 255)
+    text.TextStrokeTransparency = 0.3
+    text.TextScaled = true
+    text.Font = Enum.Font.GothamBold
+    text.Parent = billboard
+
+    local esp = { Alive = true, Visible = visible, Hidden = hidden, Billboard = billboard, Text = text }
+
+    function esp:Destroy()
+        self.Alive = false
+        if visible then visible:Destroy() end
+        if hidden then hidden:Destroy() end
+        if billboard then billboard:Destroy() end
+    end
+
+    generatorESP[gen] = esp
+
+    task.spawn(function()
+        while esp.Alive and gen.Parent do
+            local currentProgress = gen:GetAttribute("RepairProgress")
+            
+            if currentProgress then
+                text.Text = string.format("%.0f%%", currentProgress)
+                if currentProgress > 0 then
+                    text.TextColor3 = Color3.fromRGB(80, 255, 120)
+                else
+                    text.TextColor3 = Color3.fromRGB(255, 255, 255)
+                end
+                
+                if currentProgress >= 100 then
+                    esp:Destroy()
+                    generatorESP[gen] = nil
+                    break
+                end
+            end
+            task.wait(0.5)
+        end
+    end)
+end
+
+local palletESP = {}
+
+local function GetModelPos(model)
+    if model:IsA("Model") then
+        local p = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+        return p and p.Position
+    elseif model:IsA("BasePart") then
+        return model.Position
+    end
+    return nil
+end
+
+local function AddPalletESP(pallet)
+    if palletESP[pallet] then return end
+    palletESP[pallet] = CreateESP(pallet, COLORS.Pallet, COLORS.PalletCovered, "PalletESP", false)
+end
+
+-- ==========================================
+-- SCANNING (combined for all ESP types)
+-- ==========================================
+local function ScanModel(obj)
+    if obj.Name == "PalletPoint" then
+        local palletModel = obj.Parent and obj.Parent.Parent
+        if palletModel and palletModel.Name == "Newpallet" then
+            AddPalletESP(palletModel)
+        end
+    end
+
+    local lower = string.lower(obj.Name or "")
+    if obj:IsA("Model") and string.find(lower, "generator", 1, true) then
+        CreateGeneratorESP(obj)
+    end
+end
+
+local function ScanEverything()
+    local map = workspace:FindFirstChild("Map") or workspace
+    for _, obj in ipairs(map:GetDescendants()) do
+        ScanModel(obj)
+    end
+end
+
+task.wait(1)
+ScanEverything()
+
+workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Map" then
+        task.wait(2)
+        ScanEverything()
+    end
+end)
+
+workspace.ChildRemoved:Connect(function(child)
+    if child.Name == "Map" then
+        task.wait(2)
+        ScanEverything()
+    end
+end)
+
+local function WatchNewObjects()
+    local map = workspace:FindFirstChild("Map") or workspace
+    map.DescendantAdded:Connect(function(obj)
+        task.wait(0.1)
+        ScanModel(obj)
+    end)
+end
+WatchNewObjects()
+
+-- ==========================================
+-- PALLET NEAREST UPDATE LOOP
+-- ==========================================
+local nearestPallet
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        local char = player.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then continue end
+
+        local myPos = root.Position
+        local nextNearest, nearestDistance = nil, math.huge
+
+        for pallet, esp in pairs(palletESP) do
+            if not pallet.Parent or not esp.Alive then
+                palletESP[pallet] = nil
+                esp:Destroy()
+            else
+                local pos = GetModelPos(pallet)
+                if pos then
+                    local distance = (pos - myPos).Magnitude
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nextNearest = pallet
+                    end
+                end
+            end
+        end
+
+        if nextNearest ~= nearestPallet then
+            local previousESP = nearestPallet and palletESP[nearestPallet]
+            if previousESP and previousESP.Alive then
+                previousESP:SetColor(COLORS.Pallet, COLORS.PalletCovered)
+            end
+
+            nearestPallet = nextNearest
+
+            local currentESP = nearestPallet and palletESP[nearestPallet]
+            if currentESP and currentESP.Alive then
+                currentESP:SetColor(COLORS.Nearest, COLORS.Nearest)
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- HEAL
+-- ==========================================
+local function Heal()
+    local char = player.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return end
+    local rootPart = char:FindFirstChild("HumanoidRootPart")
+    hum.PlatformStand = false
+    hum.WalkSpeed = 16
+    hum.JumpPower = 50
+    hum.Health = hum.MaxHealth
+    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+    if rootPart then rootPart.CanCollide = true end
+    for _, object in ipairs(char:GetDescendants()) do
+        if BODY_MOVERS[object.ClassName] then object:Destroy() end
+    end
+    if healRemote then
+        pcall(function() healRemote:FireServer(rootPart or char:WaitForChild("HumanoidRootPart"), true) end)
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.F then Heal() end
+end)
+local StarterGui = game:GetService("StarterGui")
+task.spawn(function()
+    while true do
+        task.wait(1)
+        pcall(function()
+            -- Forces the Roblox CoreGui (Menu) to stay enabled
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+        end)
+    end
+end)
