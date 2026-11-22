@@ -1,0 +1,1 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/pathetic120px/sed.lol/refs/heads/main/violence-district.txt"))()
