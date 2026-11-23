@@ -223,44 +223,57 @@ local function CleanupPlayer(targetPlayer)
     end
 end
 
+-- ==========================================
+-- KILLER OVERLAY (self-healing)
+-- ==========================================
 local PlayerGui = player:WaitForChild("PlayerGui")
 
-local oldGui = PlayerGui:FindFirstChild("KillerTextOverlay")
-if oldGui then oldGui:Destroy() end
+local killUI
+local killText
 
-local killUI = Instance.new("ScreenGui")
-killUI.Name = "KillerTextOverlay"
-killUI.ResetOnSpawn = false
-killUI.IgnoreGuiInset = true
-killUI.Parent = PlayerGui
+local function EnsureOverlay()
+    local pg = player:FindFirstChild("PlayerGui")
+    if pg then PlayerGui = pg end
 
-local killText = Instance.new("TextLabel")
-killText.Name = "KillerText"
-killText.Size = UDim2.new(0, 500, 0, 50)
-killText.Position = UDim2.new(1, -520, 0, 20)
-killText.BackgroundTransparency = 1
-killText.Text = "Next Killer: scanning..."
-killText.TextColor3 = Color3.fromRGB(255, 50, 50)
-killText.Font = Enum.Font.GothamBold
-killText.TextSize = 20
-killText.TextXAlignment = Enum.TextXAlignment.Right
-killText.TextYAlignment = Enum.TextYAlignment.Top
-killText.Parent = killUI
+    if not killUI or not killUI.Parent then
+        local existing = PlayerGui:FindFirstChild("KillerTextOverlay")
+        if existing then existing:Destroy() end
+
+        killUI = Instance.new("ScreenGui")
+        killUI.Name = "KillerTextOverlay"
+        killUI.ResetOnSpawn = false
+        killUI.IgnoreGuiInset = true
+        killUI.DisplayOrder = 999
+        killUI.Parent = PlayerGui
+    end
+
+    if not killText or not killText.Parent then
+        killText = Instance.new("TextLabel")
+        killText.Name = "KillerText"
+        killText.Size = UDim2.new(0, 500, 0, 50)
+        killText.Position = UDim2.new(1, -520, 0, 20)
+        killText.BackgroundTransparency = 1
+        killText.Text = "Next Killer: scanning..."
+        killText.TextColor3 = Color3.fromRGB(255, 50, 50)
+        killText.Font = Enum.Font.GothamBold
+        killText.TextSize = 20
+        killText.TextXAlignment = Enum.TextXAlignment.Right
+        killText.TextYAlignment = Enum.TextYAlignment.Top
+        killText.Parent = killUI
+    end
+end
+
+EnsureOverlay()
 
 local function getValue(obj, name)
     if not obj then return nil end
-
     local value = obj:GetAttribute(name)
     if value ~= nil then return value end
-
     local child = obj:FindFirstChild(name)
     if child then
-        local ok, result = pcall(function()
-            return child.Value
-        end)
+        local ok, result = pcall(function() return child.Value end)
         if ok then return result end
     end
-
     return nil
 end
 
@@ -270,80 +283,70 @@ local function isKiller(p)
         or teamName:find("murderer", 1, true) ~= nil
 end
 
--- ==========================================
--- FIXED: updateDisplay always writes a definite state each tick,
--- so between rounds it falls back to "scanning..." instead of freezing.
--- ==========================================
 local function updateDisplay()
-    -- 1. Active killer (round in progress)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player and isKiller(p) then
             local character = p.Character
             local killerType = character and character:GetAttribute("MorphedKiller")
-
             if killerType then
                 local displayName = KILLER_NAMES[tostring(killerType)] or tostring(killerType)
                 local mask = character:GetAttribute("Mask")
                 local maskText = mask and (" (" .. tostring(mask) .. ")") or ""
-                killText.Text = "Killer: @" .. p.Name .. " — " .. displayName .. maskText
-                return
+                return "Killer: @" .. p.Name .. " — " .. displayName .. maskText
             end
-
-            killText.Text = "Killer: @" .. p.Name
-            return
+            return "Killer: @" .. p.Name
         end
     end
 
-    -- 2. No active killer — try to predict next killer
-    local candidates = Players:GetPlayers()
-    local candidate
-    local bestAllowed
-    local bestChance = -math.huge
-    local bestAllowedChance = -math.huge
-
-    for _, p in ipairs(candidates) do
+    local candidate, bestAllowed
+    local bestChance, bestAllowedChance = -math.huge, -math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
         local chance = tonumber(getValue(p, "KillerChance")) or 0
         if getValue(p, "AllowKiller") == true then
             if not bestAllowed or chance > bestAllowedChance then
-                bestAllowed = p
-                bestAllowedChance = chance
+                bestAllowed = p; bestAllowedChance = chance
             end
         elseif not candidate or chance > bestChance then
-            candidate = p
-            bestChance = chance
+            candidate = p; bestChance = chance
         end
     end
-
     candidate = bestAllowed or candidate
 
-    -- 3. Only show prediction if round data is actually valid
     if candidate then
         local chance = tonumber(getValue(candidate, "KillerChance"))
         local selected = getValue(candidate, "SelectedKiller")
-
         if selected and tostring(selected) ~= "" then
             local username = candidate == player and "YOU (@" .. player.Name .. ")" or "@" .. candidate.Name
             local displayName = KILLER_NAMES[tostring(selected)] or tostring(selected)
-            killText.Text = "Next Killer: " .. username .. " — " .. displayName
-            return
+            return "Next Killer: " .. username .. " — " .. displayName
         elseif chance and chance > 0 then
             local username = candidate == player and "YOU (@" .. player.Name .. ")" or "@" .. candidate.Name
-            killText.Text = "Next Killer: " .. username
-            return
+            return "Next Killer: " .. username
         end
     end
 
-    -- 4. Between rounds / no data — reset to scanning state
-    killText.Text = "Next Killer: scanning..."
+    return "Next Killer: scanning..."
 end
 
 task.spawn(function()
-    while killUI.Parent do
-        updateDisplay()
+    while true do
+        EnsureOverlay()
+        local ok, text = pcall(updateDisplay)
+        if ok and killText and killText.Parent then
+            killText.Text = text
+        end
         task.wait(1)
     end
 end)
 
+player.CharacterAdded:Connect(function()
+    task.wait(1)
+    EnsureOverlay()
+end)
+
+-- ==========================================
+-- PLAYER ESP
+-- ==========================================
 local function AddPlayerESP(targetPlayer)
     if targetPlayer == player then return end
     CleanupPlayer(targetPlayer)
