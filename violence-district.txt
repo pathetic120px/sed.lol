@@ -54,7 +54,6 @@ local KILLER_NAMES = {
 -- ==========================================
 local visualEnhanced = false
 
--- Store originals so we can restore them
 local originalLighting = {
     FogEnd = Lighting.FogEnd,
     FogStart = Lighting.FogStart,
@@ -69,7 +68,6 @@ local originalEffects = {}
 local disabledParticles = {}
 
 local function ApplyVisualEnhancement()
-    -- Save originals first
     originalLighting = {
         FogEnd = Lighting.FogEnd,
         FogStart = Lighting.FogStart,
@@ -86,7 +84,6 @@ local function ApplyVisualEnhancement()
     Lighting.Brightness = 2
     Lighting.OutdoorAmbient = Color3.fromRGB(180, 180, 180)
 
-    -- Disable particles
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
             if obj.Enabled then
@@ -96,7 +93,6 @@ local function ApplyVisualEnhancement()
         end
     end
 
-    -- Atmosphere
     originalAtmospheres = {}
     for _, obj in ipairs(Lighting:GetChildren()) do
         if obj:IsA("Atmosphere") then
@@ -109,7 +105,6 @@ local function ApplyVisualEnhancement()
         end
     end
 
-    -- Post-processing effects
     originalEffects = {}
     for _, obj in ipairs(Lighting:GetChildren()) do
         if obj:IsA("BlurEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("DepthOfFieldEffect") or obj:IsA("SunRaysEffect") then
@@ -120,7 +115,6 @@ local function ApplyVisualEnhancement()
 end
 
 local function RemoveVisualEnhancement()
-    -- Restore lighting
     Lighting.FogEnd = originalLighting.FogEnd
     Lighting.FogStart = originalLighting.FogStart
     Lighting.FogColor = originalLighting.FogColor
@@ -128,7 +122,6 @@ local function RemoveVisualEnhancement()
     Lighting.Brightness = originalLighting.Brightness
     Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
 
-    -- Restore particles
     for obj in pairs(disabledParticles) do
         if obj and obj.Parent then
             obj.Enabled = true
@@ -136,7 +129,6 @@ local function RemoveVisualEnhancement()
     end
     disabledParticles = {}
 
-    -- Restore atmosphere
     for obj, data in pairs(originalAtmospheres) do
         if obj and obj.Parent then
             obj.Density = data.Density
@@ -146,7 +138,6 @@ local function RemoveVisualEnhancement()
     end
     originalAtmospheres = {}
 
-    -- Restore effects
     for obj, parent in pairs(originalEffects) do
         if obj and parent then
             obj.Parent = parent
@@ -164,11 +155,9 @@ local function ToggleVisualEnhancement()
     end
 end
 
--- Apply on load (default ON, same as before)
 visualEnhanced = true
 ApplyVisualEnhancement()
 
--- Keep disabling new particles only while enhanced
 workspace.DescendantAdded:Connect(function(obj)
     if visualEnhanced and (obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles")) then
         disabledParticles[obj] = true
@@ -281,7 +270,12 @@ local function isKiller(p)
         or teamName:find("murderer", 1, true) ~= nil
 end
 
+-- ==========================================
+-- FIXED: updateDisplay always writes a definite state each tick,
+-- so between rounds it falls back to "scanning..." instead of freezing.
+-- ==========================================
 local function updateDisplay()
+    -- 1. Active killer (round in progress)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player and isKiller(p) then
             local character = p.Character
@@ -300,6 +294,7 @@ local function updateDisplay()
         end
     end
 
+    -- 2. No active killer — try to predict next killer
     local candidates = Players:GetPlayers()
     local candidate
     local bestAllowed
@@ -320,20 +315,26 @@ local function updateDisplay()
     end
 
     candidate = bestAllowed or candidate
-    if not candidate then
-        killText.Text = "Next Killer: no players found"
-        return
+
+    -- 3. Only show prediction if round data is actually valid
+    if candidate then
+        local chance = tonumber(getValue(candidate, "KillerChance"))
+        local selected = getValue(candidate, "SelectedKiller")
+
+        if selected and tostring(selected) ~= "" then
+            local username = candidate == player and "YOU (@" .. player.Name .. ")" or "@" .. candidate.Name
+            local displayName = KILLER_NAMES[tostring(selected)] or tostring(selected)
+            killText.Text = "Next Killer: " .. username .. " — " .. displayName
+            return
+        elseif chance and chance > 0 then
+            local username = candidate == player and "YOU (@" .. player.Name .. ")" or "@" .. candidate.Name
+            killText.Text = "Next Killer: " .. username
+            return
+        end
     end
 
-    local username = candidate == player and "YOU (@" .. player.Name .. ")" or "@" .. candidate.Name
-    local selected = getValue(candidate, "SelectedKiller")
-
-    if selected and tostring(selected) ~= "" then
-        local displayName = KILLER_NAMES[tostring(selected)] or tostring(selected)
-        killText.Text = "Next Killer: " .. username .. " — " .. displayName
-    else
-        killText.Text = "Next Killer: " .. username
-    end
+    -- 4. Between rounds / no data — reset to scanning state
+    killText.Text = "Next Killer: scanning..."
 end
 
 task.spawn(function()
