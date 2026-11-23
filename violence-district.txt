@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
+local StarterGui = game:GetService("StarterGui")
 
 local player = Players.LocalPlayer
 local playerESP = {}
@@ -48,35 +49,136 @@ local KILLER_NAMES = {
     ["Butcher"] = "The Butcher",
 }
 
-Lighting.FogEnd = 1e6
-Lighting.FogStart = 1e6
-Lighting.FogColor = Color3.fromRGB(200, 200, 200)
-Lighting.GlobalShadows = false
-Lighting.Brightness = 2
-Lighting.OutdoorAmbient = Color3.fromRGB(180, 180, 180)
+-- ==========================================
+-- VISUAL ENHANCEMENT (toggleable with P)
+-- ==========================================
+local visualEnhanced = false
 
-for _, obj in ipairs(workspace:GetDescendants()) do
-    if obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
-        obj.Enabled = false
+-- Store originals so we can restore them
+local originalLighting = {
+    FogEnd = Lighting.FogEnd,
+    FogStart = Lighting.FogStart,
+    FogColor = Lighting.FogColor,
+    GlobalShadows = Lighting.GlobalShadows,
+    Brightness = Lighting.Brightness,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+}
+
+local originalAtmospheres = {}
+local originalEffects = {}
+local disabledParticles = {}
+
+local function ApplyVisualEnhancement()
+    -- Save originals first
+    originalLighting = {
+        FogEnd = Lighting.FogEnd,
+        FogStart = Lighting.FogStart,
+        FogColor = Lighting.FogColor,
+        GlobalShadows = Lighting.GlobalShadows,
+        Brightness = Lighting.Brightness,
+        OutdoorAmbient = Lighting.OutdoorAmbient,
+    }
+
+    Lighting.FogEnd = 1e6
+    Lighting.FogStart = 1e6
+    Lighting.FogColor = Color3.fromRGB(200, 200, 200)
+    Lighting.GlobalShadows = false
+    Lighting.Brightness = 2
+    Lighting.OutdoorAmbient = Color3.fromRGB(180, 180, 180)
+
+    -- Disable particles
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+            if obj.Enabled then
+                disabledParticles[obj] = true
+                obj.Enabled = false
+            end
+        end
+    end
+
+    -- Atmosphere
+    originalAtmospheres = {}
+    for _, obj in ipairs(Lighting:GetChildren()) do
+        if obj:IsA("Atmosphere") then
+            originalAtmospheres[obj] = {
+                Density = obj.Density,
+                Haze = obj.Haze,
+                Glare = obj.Glare,
+            }
+            obj.Density = 0; obj.Haze = 0; obj.Glare = 0
+        end
+    end
+
+    -- Post-processing effects
+    originalEffects = {}
+    for _, obj in ipairs(Lighting:GetChildren()) do
+        if obj:IsA("BlurEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("DepthOfFieldEffect") or obj:IsA("SunRaysEffect") then
+            originalEffects[obj] = obj.Parent
+            obj.Parent = nil
+        end
     end
 end
+
+local function RemoveVisualEnhancement()
+    -- Restore lighting
+    Lighting.FogEnd = originalLighting.FogEnd
+    Lighting.FogStart = originalLighting.FogStart
+    Lighting.FogColor = originalLighting.FogColor
+    Lighting.GlobalShadows = originalLighting.GlobalShadows
+    Lighting.Brightness = originalLighting.Brightness
+    Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+
+    -- Restore particles
+    for obj in pairs(disabledParticles) do
+        if obj and obj.Parent then
+            obj.Enabled = true
+        end
+    end
+    disabledParticles = {}
+
+    -- Restore atmosphere
+    for obj, data in pairs(originalAtmospheres) do
+        if obj and obj.Parent then
+            obj.Density = data.Density
+            obj.Haze = data.Haze
+            obj.Glare = data.Glare
+        end
+    end
+    originalAtmospheres = {}
+
+    -- Restore effects
+    for obj, parent in pairs(originalEffects) do
+        if obj and parent then
+            obj.Parent = parent
+        end
+    end
+    originalEffects = {}
+end
+
+local function ToggleVisualEnhancement()
+    visualEnhanced = not visualEnhanced
+    if visualEnhanced then
+        ApplyVisualEnhancement()
+    else
+        RemoveVisualEnhancement()
+    end
+end
+
+-- Apply on load (default ON, same as before)
+visualEnhanced = true
+ApplyVisualEnhancement()
+
+-- Keep disabling new particles only while enhanced
 workspace.DescendantAdded:Connect(function(obj)
-    if obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+    if visualEnhanced and (obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles")) then
+        disabledParticles[obj] = true
         obj.Enabled = false
     end
 end)
 
-for _, obj in ipairs(Lighting:GetChildren()) do
-    if obj:IsA("Atmosphere") then
-        obj.Density = 0; obj.Haze = 0; obj.Glare = 0
-    end
-end
-for _, obj in ipairs(Lighting:GetChildren()) do
-    if obj:IsA("BlurEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("DepthOfFieldEffect") or obj:IsA("SunRaysEffect") then
-        obj.Parent = nil
-    end
-end
-
+-- ==========================================
+-- ESP
+-- ==========================================
 local function CreateESP(adornee, visibleColor, coveredColor, name, isPlayer)
     local visible = Instance.new("Highlight")
     visible.Name = name
@@ -289,7 +391,7 @@ end)
 Players.PlayerRemoving:Connect(CleanupPlayer)
 
 -- ==========================================
--- GENERATOR ESP (With Progress Percentage)
+-- GENERATOR ESP
 -- ==========================================
 local generatorESP = {}
 
@@ -388,7 +490,7 @@ local function AddPalletESP(pallet)
 end
 
 -- ==========================================
--- SCANNING (combined for all ESP types)
+-- SCANNING
 -- ==========================================
 local function ScanModel(obj)
     if obj.Name == "PalletPoint" then
@@ -507,17 +609,43 @@ local function Heal()
     end
 end
 
+-- ==========================================
+-- KEYBINDS
+-- ==========================================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.F then Heal() end
+    if input.KeyCode == Enum.KeyCode.F then
+        Heal()
+    elseif input.KeyCode == Enum.KeyCode.P then
+        ToggleVisualEnhancement()
+    end
 end)
-local StarterGui = game:GetService("StarterGui")
+
+-- ==========================================
+-- CORE GUI FIX
+-- ==========================================
+local function ApplyCoreGuiSettings()
+    for _ = 1, 10 do
+        local ok = pcall(function()
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+        end)
+        if ok then break end
+        task.wait(0.5)
+    end
+end
+
+ApplyCoreGuiSettings()
+
+player.CharacterAdded:Connect(function()
+    task.wait(1)
+    ApplyCoreGuiSettings()
+end)
+
 task.spawn(function()
     while true do
-        task.wait(1)
+        task.wait(2)
         pcall(function()
-            -- Forces the Roblox CoreGui (Menu) to stay enabled
-            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
         end)
     end
 end)
