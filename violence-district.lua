@@ -40,9 +40,6 @@ local KILLER_NAMES = {
     ["Masked"]="The Masked",["Cure"]="The Cure",["Butcher"]="The Butcher",
 }
 
--- ==========================================
--- FEATURE STATE
--- ==========================================
 local Features = {
     PlayerESP = true,
     GeneratorESP = true,
@@ -53,9 +50,6 @@ local Features = {
     CoreGuiFix = true,
 }
 
--- ==========================================
--- VISUAL ENHANCEMENT
--- ==========================================
 local visualEnhanced = false
 local originalLighting = {}
 local originalAtmospheres = {}
@@ -147,9 +141,6 @@ workspace.DescendantAdded:Connect(function(obj)
     end
 end)
 
--- ==========================================
--- ESP CREATION
--- ==========================================
 local function CreateESP(adornee, visibleColor, coveredColor, name, isPlayer)
     local visible = Instance.new("Highlight")
     visible.Name = name
@@ -210,9 +201,6 @@ local function CleanupPlayer(targetPlayer)
     end
 end
 
--- ==========================================
--- KILLER OVERLAY (self-healing)
--- ==========================================
 local PlayerGui = player:WaitForChild("PlayerGui")
 local killUI, killText
 
@@ -329,9 +317,6 @@ player.CharacterAdded:Connect(function()
     EnsureOverlay()
 end)
 
--- ==========================================
--- PLAYER ESP
--- ==========================================
 local function AddPlayerESP(targetPlayer)
     if targetPlayer == player then return end
     CleanupPlayer(targetPlayer)
@@ -378,9 +363,6 @@ for _, p in ipairs(Players:GetPlayers()) do AddPlayerESP(p) end
 Players.PlayerAdded:Connect(AddPlayerESP)
 Players.PlayerRemoving:Connect(CleanupPlayer)
 
--- ==========================================
--- GENERATOR ESP
--- ==========================================
 local generatorESP = {}
 
 local function CreateGeneratorESP(gen)
@@ -445,9 +427,6 @@ local function CreateGeneratorESP(gen)
     end)
 end
 
--- ==========================================
--- PALLET ESP
--- ==========================================
 local palletESP = {}
 
 local function GetModelPos(model)
@@ -467,9 +446,6 @@ local function AddPalletESP(pallet)
     palletESP[pallet] = esp
 end
 
--- ==========================================
--- SCANNING
--- ==========================================
 local function ScanModel(obj)
     if obj.Name == "PalletPoint" then
         local pm = obj.Parent and obj.Parent.Parent
@@ -505,9 +481,6 @@ task.spawn(function()
     end)
 end)
 
--- ==========================================
--- PALLET NEAREST UPDATE LOOP
--- ==========================================
 local nearestPallet
 
 task.spawn(function()
@@ -551,9 +524,6 @@ task.spawn(function()
     end
 end)
 
--- ==========================================
--- HEAL
--- ==========================================
 local function Heal()
     if not Features.AutoHeal then return end
     local char = player.Character
@@ -577,9 +547,6 @@ local function Heal()
     end
 end
 
--- ==========================================
--- CORE GUI FIX
--- ==========================================
 local function ApplyCoreGuiSettings()
     if not Features.CoreGuiFix then return end
     for _ = 1, 10 do
@@ -609,9 +576,6 @@ task.spawn(function()
     end
 end)
 
--- ==========================================
--- TOGGLE HELPERS (used by the UI)
--- ==========================================
 local function SetAllPlayerESP(on)
     Features.PlayerESP = on
     for _, esp in pairs(playerESP) do
@@ -658,9 +622,6 @@ local function SetCoreGuiFix(on)
     end
 end
 
--- ==========================================
--- KEYBINDS (respect GUI toggles)
--- ==========================================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.F then
@@ -670,10 +631,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- ⬇⬇⬇  PASTE THE CYBERPUNK UI BLOCK DIRECTLY BELOW THIS LINE  ⬇⬇⬇
--- ==========================================
--- CYBERPUNK UI
--- ==========================================
 local TweenService = game:GetService("TweenService")
 
 local Theme = {
@@ -925,7 +882,6 @@ do
     footer.TextSize = 10
     footer.Parent = content
 
-    -- Minimize behavior
     local minimized = false
     min.MouseButton1Click:Connect(function()
         minimized = not minimized
@@ -935,7 +891,6 @@ do
         }):Play()
     end)
 
-    -- Draggable via title bar
     local dragging, dragStart, startPos
     titleBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
