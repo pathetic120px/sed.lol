@@ -20,10 +20,7 @@ do
 end
 
 local BODY_MOVERS = {
-    BodyVelocity = true,
-    BodyPosition = true,
-    BodyGyro = true,
-    BodyForce = true,
+    BodyVelocity = true, BodyPosition = true, BodyGyro = true, BodyForce = true,
 }
 
 local COLORS = {
@@ -38,31 +35,29 @@ local COLORS = {
 }
 
 local KILLER_NAMES = {
-    ["Stalker"] = "The Stalker",
-    ["Killer"] = "The Killer",
-    ["Hidden"] = "The Hidden",
-    ["Abysswalker"] = "The Abysswalker",
-    ["Veil"] = "The Veil",
-    ["Slasher"] = "The Slasher",
-    ["Masked"] = "The Masked",
-    ["Cure"] = "The Cure",
-    ["Butcher"] = "The Butcher",
+    ["Stalker"]="The Stalker",["Killer"]="The Killer",["Hidden"]="The Hidden",
+    ["Abysswalker"]="The Abysswalker",["Veil"]="The Veil",["Slasher"]="The Slasher",
+    ["Masked"]="The Masked",["Cure"]="The Cure",["Butcher"]="The Butcher",
 }
 
 -- ==========================================
--- VISUAL ENHANCEMENT (toggleable with P)
+-- FEATURE STATE
+-- ==========================================
+local Features = {
+    PlayerESP = true,
+    GeneratorESP = true,
+    PalletESP = true,
+    KillerOverlay = true,
+    VisualEnhancement = true,
+    AutoHeal = true,
+    CoreGuiFix = true,
+}
+
+-- ==========================================
+-- VISUAL ENHANCEMENT
 -- ==========================================
 local visualEnhanced = false
-
-local originalLighting = {
-    FogEnd = Lighting.FogEnd,
-    FogStart = Lighting.FogStart,
-    FogColor = Lighting.FogColor,
-    GlobalShadows = Lighting.GlobalShadows,
-    Brightness = Lighting.Brightness,
-    OutdoorAmbient = Lighting.OutdoorAmbient,
-}
-
+local originalLighting = {}
 local originalAtmospheres = {}
 local originalEffects = {}
 local disabledParticles = {}
@@ -76,7 +71,6 @@ local function ApplyVisualEnhancement()
         Brightness = Lighting.Brightness,
         OutdoorAmbient = Lighting.OutdoorAmbient,
     }
-
     Lighting.FogEnd = 1e6
     Lighting.FogStart = 1e6
     Lighting.FogColor = Color3.fromRGB(200, 200, 200)
@@ -96,11 +90,7 @@ local function ApplyVisualEnhancement()
     originalAtmospheres = {}
     for _, obj in ipairs(Lighting:GetChildren()) do
         if obj:IsA("Atmosphere") then
-            originalAtmospheres[obj] = {
-                Density = obj.Density,
-                Haze = obj.Haze,
-                Glare = obj.Glare,
-            }
+            originalAtmospheres[obj] = { Density = obj.Density, Haze = obj.Haze, Glare = obj.Glare }
             obj.Density = 0; obj.Haze = 0; obj.Glare = 0
         end
     end
@@ -123,9 +113,7 @@ local function RemoveVisualEnhancement()
     Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
 
     for obj in pairs(disabledParticles) do
-        if obj and obj.Parent then
-            obj.Enabled = true
-        end
+        if obj and obj.Parent then obj.Enabled = true end
     end
     disabledParticles = {}
 
@@ -139,24 +127,18 @@ local function RemoveVisualEnhancement()
     originalAtmospheres = {}
 
     for obj, parent in pairs(originalEffects) do
-        if obj and parent then
-            obj.Parent = parent
-        end
+        if obj and parent then obj.Parent = parent end
     end
     originalEffects = {}
 end
 
-local function ToggleVisualEnhancement()
-    visualEnhanced = not visualEnhanced
-    if visualEnhanced then
-        ApplyVisualEnhancement()
-    else
-        RemoveVisualEnhancement()
-    end
+local function SetVisualEnhancement(on)
+    if on == visualEnhanced then return end
+    visualEnhanced = on
+    if on then ApplyVisualEnhancement() else RemoveVisualEnhancement() end
 end
 
-visualEnhanced = true
-ApplyVisualEnhancement()
+SetVisualEnhancement(true)
 
 workspace.DescendantAdded:Connect(function(obj)
     if visualEnhanced and (obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles")) then
@@ -166,7 +148,7 @@ workspace.DescendantAdded:Connect(function(obj)
 end)
 
 -- ==========================================
--- ESP
+-- ESP CREATION
 -- ==========================================
 local function CreateESP(adornee, visibleColor, coveredColor, name, isPlayer)
     local visible = Instance.new("Highlight")
@@ -201,6 +183,11 @@ local function CreateESP(adornee, visibleColor, coveredColor, name, isPlayer)
         end
     end
 
+    function esp:SetVisible(on)
+        visible.Enabled = on
+        hidden.Enabled = on
+    end
+
     function esp:Destroy()
         self.Alive = false
         if visible then visible:Destroy() end
@@ -227,9 +214,7 @@ end
 -- KILLER OVERLAY (self-healing)
 -- ==========================================
 local PlayerGui = player:WaitForChild("PlayerGui")
-
-local killUI
-local killText
+local killUI, killText
 
 local function EnsureOverlay()
     local pg = player:FindFirstChild("PlayerGui")
@@ -238,7 +223,6 @@ local function EnsureOverlay()
     if not killUI or not killUI.Parent then
         local existing = PlayerGui:FindFirstChild("KillerTextOverlay")
         if existing then existing:Destroy() end
-
         killUI = Instance.new("ScreenGui")
         killUI.Name = "KillerTextOverlay"
         killUI.ResetOnSpawn = false
@@ -261,6 +245,8 @@ local function EnsureOverlay()
         killText.TextYAlignment = Enum.TextYAlignment.Top
         killText.Parent = killUI
     end
+
+    killText.Visible = Features.KillerOverlay
 end
 
 EnsureOverlay()
@@ -278,21 +264,20 @@ local function getValue(obj, name)
 end
 
 local function isKiller(p)
-    local teamName = p.Team and p.Team.Name:lower() or ""
-    return teamName:find("killer", 1, true) ~= nil
-        or teamName:find("murderer", 1, true) ~= nil
+    local t = p.Team and p.Team.Name:lower() or ""
+    return t:find("killer", 1, true) ~= nil or t:find("murderer", 1, true) ~= nil
 end
 
 local function updateDisplay()
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player and isKiller(p) then
-            local character = p.Character
-            local killerType = character and character:GetAttribute("MorphedKiller")
-            if killerType then
-                local displayName = KILLER_NAMES[tostring(killerType)] or tostring(killerType)
-                local mask = character:GetAttribute("Mask")
-                local maskText = mask and (" (" .. tostring(mask) .. ")") or ""
-                return "Killer: @" .. p.Name .. " — " .. displayName .. maskText
+            local char = p.Character
+            local kt = char and char:GetAttribute("MorphedKiller")
+            if kt then
+                local dn = KILLER_NAMES[tostring(kt)] or tostring(kt)
+                local m = char:GetAttribute("Mask")
+                local ms = m and (" (" .. tostring(m) .. ")") or ""
+                return "Killer: @" .. p.Name .. " — " .. dn .. ms
             end
             return "Killer: @" .. p.Name
         end
@@ -315,25 +300,25 @@ local function updateDisplay()
     if candidate then
         local chance = tonumber(getValue(candidate, "KillerChance"))
         local selected = getValue(candidate, "SelectedKiller")
+        local un = candidate == player and "YOU (@" .. player.Name .. ")" or "@" .. candidate.Name
         if selected and tostring(selected) ~= "" then
-            local username = candidate == player and "YOU (@" .. player.Name .. ")" or "@" .. candidate.Name
-            local displayName = KILLER_NAMES[tostring(selected)] or tostring(selected)
-            return "Next Killer: " .. username .. " — " .. displayName
+            local dn = KILLER_NAMES[tostring(selected)] or tostring(selected)
+            return "Next Killer: " .. un .. " — " .. dn
         elseif chance and chance > 0 then
-            local username = candidate == player and "YOU (@" .. player.Name .. ")" or "@" .. candidate.Name
-            return "Next Killer: " .. username
+            return "Next Killer: " .. un
         end
     end
-
     return "Next Killer: scanning..."
 end
 
 task.spawn(function()
     while true do
         EnsureOverlay()
-        local ok, text = pcall(updateDisplay)
-        if ok and killText and killText.Parent then
-            killText.Text = text
+        if Features.KillerOverlay then
+            local ok, text = pcall(updateDisplay)
+            if ok and killText and killText.Parent then
+                killText.Text = text
+            end
         end
         task.wait(1)
     end
@@ -354,8 +339,7 @@ local function AddPlayerESP(targetPlayer)
     connections[targetPlayer] = conns
 
     local function getColors()
-        local killer = isKiller(targetPlayer)
-        if killer then
+        if isKiller(targetPlayer) then
             return COLORS.Killer, COLORS.KillerCovered
         else
             return COLORS.PlayerNeon, COLORS.PlayerNeonCovered
@@ -369,16 +353,18 @@ local function AddPlayerESP(targetPlayer)
             playerESP[targetPlayer] = nil
         end
         local vc, cc = getColors()
-        playerESP[targetPlayer] = CreateESP(character, vc, cc, "PlayerESP", true)
+        local esp = CreateESP(character, vc, cc, "PlayerESP", true)
+        esp:SetVisible(Features.PlayerESP)
+        playerESP[targetPlayer] = esp
     end
 
     if targetPlayer.Character then ApplyESP(targetPlayer.Character) end
-    
+
     table.insert(conns, targetPlayer.CharacterAdded:Connect(function(c)
         task.wait(0.1)
         ApplyESP(c)
     end))
-    
+
     table.insert(conns, targetPlayer:GetPropertyChangedSignal("Team"):Connect(function()
         local h = playerESP[targetPlayer]
         if h and h.Alive then
@@ -389,9 +375,7 @@ local function AddPlayerESP(targetPlayer)
 end
 
 for _, p in ipairs(Players:GetPlayers()) do AddPlayerESP(p) end
-Players.PlayerAdded:Connect(function(p)
-    AddPlayerESP(p)
-end)
+Players.PlayerAdded:Connect(AddPlayerESP)
 Players.PlayerRemoving:Connect(CleanupPlayer)
 
 -- ==========================================
@@ -401,74 +385,59 @@ local generatorESP = {}
 
 local function CreateGeneratorESP(gen)
     if generatorESP[gen] then return end
-    
+
     local progress = gen:GetAttribute("RepairProgress") or 0
     if progress >= 100 then return end
 
     local visible = Instance.new("Highlight")
-    visible.Name = "GeneratorESP"
-    visible.Adornee = gen
+    visible.Name = "GeneratorESP"; visible.Adornee = gen
     visible.DepthMode = Enum.HighlightDepthMode.Occluded
-    visible.FillTransparency = 1
-    visible.OutlineTransparency = 0.3
-    visible.OutlineColor = COLORS.Generator
-    visible.Parent = gen
+    visible.FillTransparency = 1; visible.OutlineTransparency = 0.3
+    visible.OutlineColor = COLORS.Generator; visible.Parent = gen
 
     local hidden = Instance.new("Highlight")
-    hidden.Name = "GeneratorESP"
-    hidden.Adornee = gen
+    hidden.Name = "GeneratorESP"; hidden.Adornee = gen
     hidden.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hidden.FillColor = COLORS.Generator
-    hidden.FillTransparency = 0.92
-    hidden.OutlineTransparency = 0.6
-    hidden.OutlineColor = COLORS.Generator
+    hidden.FillColor = COLORS.Generator; hidden.FillTransparency = 0.92
+    hidden.OutlineTransparency = 0.6; hidden.OutlineColor = COLORS.Generator
     hidden.Parent = gen
 
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = "GenProgressLabel"
-    billboard.Adornee = gen
+    billboard.Name = "GenProgressLabel"; billboard.Adornee = gen
     billboard.Size = UDim2.new(0, 60, 0, 24)
     billboard.StudsOffset = Vector3.new(0, 2, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Parent = gen
+    billboard.AlwaysOnTop = true; billboard.Parent = gen
 
     local text = Instance.new("TextLabel")
-    text.Size = UDim2.new(1, 0, 1, 0)
-    text.BackgroundTransparency = 1
+    text.Size = UDim2.new(1, 0, 1, 0); text.BackgroundTransparency = 1
     text.Text = tostring(progress) .. "%"
     text.TextColor3 = Color3.fromRGB(255, 255, 255)
-    text.TextStrokeTransparency = 0.3
-    text.TextScaled = true
-    text.Font = Enum.Font.GothamBold
-    text.Parent = billboard
+    text.TextStrokeTransparency = 0.3; text.TextScaled = true
+    text.Font = Enum.Font.GothamBold; text.Parent = billboard
 
-    local esp = { Alive = true, Visible = visible, Hidden = hidden, Billboard = billboard, Text = text }
-
+    local esp = { Alive = true }
+    function esp:SetVisible(on)
+        visible.Enabled = on; hidden.Enabled = on; billboard.Enabled = on
+    end
     function esp:Destroy()
         self.Alive = false
-        if visible then visible:Destroy() end
-        if hidden then hidden:Destroy() end
-        if billboard then billboard:Destroy() end
+        visible:Destroy(); hidden:Destroy(); billboard:Destroy()
     end
-
+    esp:SetVisible(Features.GeneratorESP)
     generatorESP[gen] = esp
 
     task.spawn(function()
         while esp.Alive and gen.Parent do
-            local currentProgress = gen:GetAttribute("RepairProgress")
-            
-            if currentProgress then
-                text.Text = string.format("%.0f%%", currentProgress)
-                if currentProgress > 0 then
+            local cp = gen:GetAttribute("RepairProgress")
+            if cp then
+                text.Text = string.format("%.0f%%", cp)
+                if cp > 0 then
                     text.TextColor3 = Color3.fromRGB(80, 255, 120)
                 else
                     text.TextColor3 = Color3.fromRGB(255, 255, 255)
                 end
-                
-                if currentProgress >= 100 then
-                    esp:Destroy()
-                    generatorESP[gen] = nil
-                    break
+                if cp >= 100 then
+                    esp:Destroy(); generatorESP[gen] = nil; break
                 end
             end
             task.wait(0.5)
@@ -476,6 +445,9 @@ local function CreateGeneratorESP(gen)
     end)
 end
 
+-- ==========================================
+-- PALLET ESP
+-- ==========================================
 local palletESP = {}
 
 local function GetModelPos(model)
@@ -490,7 +462,9 @@ end
 
 local function AddPalletESP(pallet)
     if palletESP[pallet] then return end
-    palletESP[pallet] = CreateESP(pallet, COLORS.Pallet, COLORS.PalletCovered, "PalletESP", false)
+    local esp = CreateESP(pallet, COLORS.Pallet, COLORS.PalletCovered, "PalletESP", false)
+    esp:SetVisible(Features.PalletESP)
+    palletESP[pallet] = esp
 end
 
 -- ==========================================
@@ -498,12 +472,9 @@ end
 -- ==========================================
 local function ScanModel(obj)
     if obj.Name == "PalletPoint" then
-        local palletModel = obj.Parent and obj.Parent.Parent
-        if palletModel and palletModel.Name == "Newpallet" then
-            AddPalletESP(palletModel)
-        end
+        local pm = obj.Parent and obj.Parent.Parent
+        if pm and pm.Name == "Newpallet" then AddPalletESP(pm) end
     end
-
     local lower = string.lower(obj.Name or "")
     if obj:IsA("Model") and string.find(lower, "generator", 1, true) then
         CreateGeneratorESP(obj)
@@ -512,36 +483,27 @@ end
 
 local function ScanEverything()
     local map = workspace:FindFirstChild("Map") or workspace
-    for _, obj in ipairs(map:GetDescendants()) do
-        ScanModel(obj)
-    end
+    for _, obj in ipairs(map:GetDescendants()) do ScanModel(obj) end
 end
 
 task.wait(1)
 ScanEverything()
 
 workspace.ChildAdded:Connect(function(child)
-    if child.Name == "Map" then
-        task.wait(2)
-        ScanEverything()
-    end
+    if child.Name == "Map" then task.wait(2); ScanEverything() end
 end)
 
 workspace.ChildRemoved:Connect(function(child)
-    if child.Name == "Map" then
-        task.wait(2)
-        ScanEverything()
-    end
+    if child.Name == "Map" then task.wait(2); ScanEverything() end
 end)
 
-local function WatchNewObjects()
+task.spawn(function()
     local map = workspace:FindFirstChild("Map") or workspace
     map.DescendantAdded:Connect(function(obj)
         task.wait(0.1)
         ScanModel(obj)
     end)
-end
-WatchNewObjects()
+end)
 
 -- ==========================================
 -- PALLET NEAREST UPDATE LOOP
@@ -551,40 +513,39 @@ local nearestPallet
 task.spawn(function()
     while true do
         task.wait(0.1)
-        local char = player.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if not root then continue end
+        if Features.PalletESP then
+            local char = player.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then
+                local myPos = root.Position
+                local nextNearest, nearestDistance = nil, math.huge
 
-        local myPos = root.Position
-        local nextNearest, nearestDistance = nil, math.huge
-
-        for pallet, esp in pairs(palletESP) do
-            if not pallet.Parent or not esp.Alive then
-                palletESP[pallet] = nil
-                esp:Destroy()
-            else
-                local pos = GetModelPos(pallet)
-                if pos then
-                    local distance = (pos - myPos).Magnitude
-                    if distance < nearestDistance then
-                        nearestDistance = distance
-                        nextNearest = pallet
+                for pallet, esp in pairs(palletESP) do
+                    if not pallet.Parent or not esp.Alive then
+                        palletESP[pallet] = nil
+                        esp:Destroy()
+                    else
+                        local pos = GetModelPos(pallet)
+                        if pos then
+                            local d = (pos - myPos).Magnitude
+                            if d < nearestDistance then
+                                nearestDistance = d; nextNearest = pallet
+                            end
+                        end
                     end
                 end
-            end
-        end
 
-        if nextNearest ~= nearestPallet then
-            local previousESP = nearestPallet and palletESP[nearestPallet]
-            if previousESP and previousESP.Alive then
-                previousESP:SetColor(COLORS.Pallet, COLORS.PalletCovered)
-            end
-
-            nearestPallet = nextNearest
-
-            local currentESP = nearestPallet and palletESP[nearestPallet]
-            if currentESP and currentESP.Alive then
-                currentESP:SetColor(COLORS.Nearest, COLORS.Nearest)
+                if nextNearest ~= nearestPallet then
+                    local prev = nearestPallet and palletESP[nearestPallet]
+                    if prev and prev.Alive then
+                        prev:SetColor(COLORS.Pallet, COLORS.PalletCovered)
+                    end
+                    nearestPallet = nextNearest
+                    local curr = nearestPallet and palletESP[nearestPallet]
+                    if curr and curr.Alive then
+                        curr:SetColor(COLORS.Nearest, COLORS.Nearest)
+                    end
+                end
             end
         end
     end
@@ -594,6 +555,7 @@ end)
 -- HEAL
 -- ==========================================
 local function Heal()
+    if not Features.AutoHeal then return end
     local char = player.Character
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -609,26 +571,17 @@ local function Heal()
         if BODY_MOVERS[object.ClassName] then object:Destroy() end
     end
     if healRemote then
-        pcall(function() healRemote:FireServer(rootPart or char:WaitForChild("HumanoidRootPart"), true) end)
+        pcall(function()
+            healRemote:FireServer(rootPart or char:WaitForChild("HumanoidRootPart"), true)
+        end)
     end
 end
-
--- ==========================================
--- KEYBINDS
--- ==========================================
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.F then
-        Heal()
-    elseif input.KeyCode == Enum.KeyCode.P then
-        ToggleVisualEnhancement()
-    end
-end)
 
 -- ==========================================
 -- CORE GUI FIX
 -- ==========================================
 local function ApplyCoreGuiSettings()
+    if not Features.CoreGuiFix then return end
     for _ = 1, 10 do
         local ok = pcall(function()
             StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
@@ -648,8 +601,364 @@ end)
 task.spawn(function()
     while true do
         task.wait(2)
-        pcall(function()
-            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
-        end)
+        if Features.CoreGuiFix then
+            pcall(function()
+                StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+            end)
+        end
     end
 end)
+
+-- ==========================================
+-- TOGGLE HELPERS (used by the UI)
+-- ==========================================
+local function SetAllPlayerESP(on)
+    Features.PlayerESP = on
+    for _, esp in pairs(playerESP) do
+        if esp.Alive then esp:SetVisible(on) end
+    end
+end
+
+local function SetAllGeneratorESP(on)
+    Features.GeneratorESP = on
+    for _, esp in pairs(generatorESP) do
+        if esp.Alive then esp:SetVisible(on) end
+    end
+end
+
+local function SetAllPalletESP(on)
+    Features.PalletESP = on
+    for _, esp in pairs(palletESP) do
+        if esp.Alive then esp:SetVisible(on) end
+    end
+end
+
+local function SetKillerOverlay(on)
+    Features.KillerOverlay = on
+    if killText then killText.Visible = on end
+end
+
+local function SetVisual(on)
+    Features.VisualEnhancement = on
+    SetVisualEnhancement(on)
+end
+
+local function SetAutoHeal(on)
+    Features.AutoHeal = on
+end
+
+local function SetCoreGuiFix(on)
+    Features.CoreGuiFix = on
+    if on then
+        ApplyCoreGuiSettings()
+    else
+        pcall(function()
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, true)
+        end)
+    end
+end
+
+-- ==========================================
+-- KEYBINDS (respect GUI toggles)
+-- ==========================================
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.F then
+        Heal()
+    elseif input.KeyCode == Enum.KeyCode.P then
+        SetVisual(not Features.VisualEnhancement)
+    end
+end)
+
+-- ⬇⬇⬇  PASTE THE CYBERPUNK UI BLOCK DIRECTLY BELOW THIS LINE  ⬇⬇⬇
+-- ==========================================
+-- CYBERPUNK UI
+-- ==========================================
+local TweenService = game:GetService("TweenService")
+
+local Theme = {
+    BG      = Color3.fromRGB(8, 6, 16),
+    BG2     = Color3.fromRGB(14, 10, 28),
+    Stroke  = Color3.fromRGB(0, 220, 255),
+    Accent  = Color3.fromRGB(0, 240, 255),
+    Accent2 = Color3.fromRGB(255, 0, 200),
+    Text    = Color3.fromRGB(220, 235, 255),
+    Sub     = Color3.fromRGB(120, 150, 180),
+    Off     = Color3.fromRGB(40, 40, 60),
+}
+
+local function corner(parent, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r)
+    c.Parent = parent
+    return c
+end
+
+local function stroke(parent, color, thickness, transparency)
+    local s = Instance.new("UIStroke")
+    s.Color = color or Theme.Stroke
+    s.Thickness = thickness or 1
+    s.Transparency = transparency or 0
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = parent
+    return s
+end
+
+local function gradient(parent, c1, c2, rot)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new(c1, c2)
+    g.Rotation = rot or 0
+    g.Parent = parent
+    return g
+end
+
+do
+    local PlayerGui = player:WaitForChild("PlayerGui")
+    local old = PlayerGui:FindFirstChild("VDControlPanel")
+    if old then old:Destroy() end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "VDControlPanel"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 1000
+    gui.Parent = PlayerGui
+
+    local main = Instance.new("Frame")
+    main.Name = "Main"
+    main.Size = UDim2.new(0, 300, 0, 480)
+    main.Position = UDim2.new(0, 22, 0.5, -240)
+    main.BackgroundColor3 = Theme.BG
+    main.BackgroundTransparency = 0.05
+    main.BorderSizePixel = 0
+    main.ClipsDescendants = true
+    main.Active = true
+    main.Parent = gui
+    corner(main, 14)
+    stroke(main, Theme.Stroke, 1.5, 0.15)
+    gradient(main, Theme.BG, Theme.BG2, 90)
+
+    local glow = Instance.new("Frame")
+    glow.Size = UDim2.new(0, 3, 1, -20)
+    glow.Position = UDim2.new(0, 0, 0, 10)
+    glow.BackgroundColor3 = Theme.Accent
+    glow.BorderSizePixel = 0
+    glow.Parent = main
+    gradient(glow, Theme.Accent, Theme.Accent2, 90)
+
+    local titleBar = Instance.new("Frame")
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, 0, 0, 56)
+    titleBar.BackgroundColor3 = Theme.BG2
+    titleBar.BackgroundTransparency = 0.2
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = main
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -80, 0, 24)
+    title.Position = UDim2.new(0, 18, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "VIOLENCE // DISTRICT"
+    title.TextColor3 = Theme.Accent
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 17
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = titleBar
+
+    local sub = Instance.new("TextLabel")
+    sub.Size = UDim2.new(1, -80, 0, 14)
+    sub.Position = UDim2.new(0, 18, 0, 32)
+    sub.BackgroundTransparency = 1
+    sub.Text = "// NEURAL INTERFACE v2.4"
+    sub.TextColor3 = Theme.Sub
+    sub.Font = Enum.Font.Code
+    sub.TextSize = 11
+    sub.TextXAlignment = Enum.TextXAlignment.Left
+    sub.Parent = titleBar
+
+    local div = Instance.new("Frame")
+    div.Size = UDim2.new(1, -24, 0, 1)
+    div.Position = UDim2.new(0, 12, 0, 56)
+    div.BackgroundColor3 = Theme.Stroke
+    div.BackgroundTransparency = 0.5
+    div.BorderSizePixel = 0
+    div.Parent = main
+
+    local min = Instance.new("TextButton")
+    min.Size = UDim2.new(0, 28, 0, 28)
+    min.Position = UDim2.new(1, -38, 0, 14)
+    min.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+    min.Text = "–"
+    min.TextColor3 = Theme.Accent
+    min.Font = Enum.Font.GothamBold
+    min.TextSize = 18
+    min.AutoButtonColor = false
+    min.BorderSizePixel = 0
+    min.Parent = titleBar
+    corner(min, 6)
+    stroke(min, Theme.Stroke, 1, 0.4)
+
+    local content = Instance.new("ScrollingFrame")
+    content.Name = "Content"
+    content.Size = UDim2.new(1, -20, 1, -78)
+    content.Position = UDim2.new(0, 10, 0, 68)
+    content.BackgroundTransparency = 1
+    content.BorderSizePixel = 0
+    content.ScrollBarThickness = 3
+    content.ScrollBarImageColor3 = Theme.Accent
+    content.CanvasSize = UDim2.new(0, 0, 0, 0)
+    content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    content.Parent = main
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 8)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = content
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop = UDim.new(0, 4)
+    pad.PaddingBottom = UDim.new(0, 8)
+    pad.Parent = content
+
+    local function MakeToggle(labelText, hint, initial, callback)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, -6, 0, 52)
+        row.BackgroundColor3 = Theme.BG2
+        row.BackgroundTransparency = 0.25
+        row.BorderSizePixel = 0
+        row.Parent = content
+        corner(row, 8)
+        stroke(row, Color3.fromRGB(35, 45, 65), 1, 0)
+
+        local accent = Instance.new("Frame")
+        accent.Size = UDim2.new(0, 2, 1, -16)
+        accent.Position = UDim2.new(0, 6, 0, 8)
+        accent.BackgroundColor3 = Theme.Accent
+        accent.BorderSizePixel = 0
+        accent.Parent = row
+        gradient(accent, Theme.Accent, Theme.Accent2, 90)
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -100, 0, 20)
+        label.Position = UDim2.new(0, 16, 0, 8)
+        label.BackgroundTransparency = 1
+        label.Text = labelText
+        label.TextColor3 = Theme.Text
+        label.Font = Enum.Font.GothamMedium
+        label.TextSize = 14
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = row
+
+        local hintL = Instance.new("TextLabel")
+        hintL.Size = UDim2.new(1, -100, 0, 14)
+        hintL.Position = UDim2.new(0, 16, 0, 28)
+        hintL.BackgroundTransparency = 1
+        hintL.Text = hint or ""
+        hintL.TextColor3 = Theme.Sub
+        hintL.Font = Enum.Font.Code
+        hintL.TextSize = 10
+        hintL.TextXAlignment = Enum.TextXAlignment.Left
+        hintL.Parent = row
+
+        local sw = Instance.new("Frame")
+        sw.Size = UDim2.new(0, 46, 0, 24)
+        sw.Position = UDim2.new(1, -58, 0.5, -12)
+        sw.BackgroundColor3 = Theme.Off
+        sw.BorderSizePixel = 0
+        sw.Parent = row
+        corner(sw, 12)
+        local swStroke = stroke(sw, Color3.fromRGB(60, 70, 90), 1, 0)
+
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.new(0, 18, 0, 18)
+        knob.Position = UDim2.new(0, 3, 0.5, -9)
+        knob.BackgroundColor3 = Color3.fromRGB(180, 190, 210)
+        knob.BorderSizePixel = 0
+        knob.Parent = sw
+        corner(knob, 9)
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 1, 0)
+        btn.BackgroundTransparency = 1
+        btn.Text = ""
+        btn.Parent = row
+
+        local state = initial
+        local function render(anim)
+            local tc = state and Color3.fromRGB(0, 230, 200) or Theme.Off
+            local tp = state and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+            local sc = state and Theme.Accent or Color3.fromRGB(60, 70, 90)
+            if anim then
+                TweenService:Create(sw, TweenInfo.new(0.18, Enum.EasingStyle.Quad), { BackgroundColor3 = tc }):Play()
+                TweenService:Create(knob, TweenInfo.new(0.18, Enum.EasingStyle.Quad), { Position = tp }):Play()
+                TweenService:Create(swStroke, TweenInfo.new(0.18), { Color = sc, Transparency = state and 0.2 or 0 }):Play()
+            else
+                sw.BackgroundColor3 = tc
+                knob.Position = tp
+                swStroke.Color = sc
+                swStroke.Transparency = state and 0.2 or 0
+            end
+        end
+        render(false)
+
+        btn.MouseButton1Click:Connect(function()
+            state = not state
+            render(true)
+            pcall(callback, state)
+        end)
+        return row
+    end
+
+    MakeToggle("PLAYER ESP", "Highlight all players", Features.PlayerESP, SetAllPlayerESP)
+    MakeToggle("GENERATOR ESP", "Generators + progress %", Features.GeneratorESP, SetAllGeneratorESP)
+    MakeToggle("PALLET ESP", "Pallets / nearest marker", Features.PalletESP, SetAllPalletESP)
+    MakeToggle("KILLER OVERLAY", "Top-right killer readout", Features.KillerOverlay, SetKillerOverlay)
+    MakeToggle("VISUAL ENHANCE", "Clean lighting  [P]", Features.VisualEnhancement, SetVisual)
+    MakeToggle("AUTO HEAL", "Health restore  [F]", Features.AutoHeal, SetAutoHeal)
+
+    local footer = Instance.new("TextLabel")
+    footer.Size = UDim2.new(1, -6, 0, 18)
+    footer.BackgroundTransparency = 1
+    footer.Text = "F = HEAL   •   P = VISUALS   •   DRAG TITLE BAR"
+    footer.TextColor3 = Theme.Sub
+    footer.Font = Enum.Font.Code
+    footer.TextSize = 10
+    footer.Parent = content
+
+    -- Minimize behavior
+    local minimized = false
+    min.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        content.Visible = not minimized
+        TweenService:Create(main, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+            Size = minimized and UDim2.new(0, 300, 0, 56) or UDim2.new(0, 300, 0, 480),
+        }):Play()
+    end)
+
+    -- Draggable via title bar
+    local dragging, dragStart, startPos
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = main.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            main.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
