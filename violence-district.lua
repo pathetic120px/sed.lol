@@ -917,3 +917,10 @@ do
         end
     end)
 end
+local __vdGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("VDControlPanel")
+__vdGui.Enabled = false
+game:GetService("UserInputService").InputBegan:Connect(function(i, g)
+    if not g and i.KeyCode == Enum.KeyCode.H then
+        __vdGui.Enabled = not __vdGui.Enabled
+    end
+end)
